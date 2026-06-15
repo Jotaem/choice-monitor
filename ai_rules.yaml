@@ -1,0 +1,37 @@
+# =============================================================================
+# MACHINE-READABLE AI GOVERNANCE RULES - CHOICE MONITOR PLATFORM
+# =============================================================================
+# Description: Strict constraints for AI code generation in Choice Monitor.
+
+project_context:
+  name: "Choice Monitor Platform"
+  architecture_style: "Historical Data-driven UI, Incremental BQ Aggregation, Strict Layers"
+  primary_language: "Google Apps Script (ES6 JavaScript) + HTML/CSS"
+  ui_framework: "Vanilla JS + TailwindCSS (via CDN) + Chart.js"
+
+system_boundaries:
+  ui_layer:
+    allowed_imports: ["google.script.run", "Chart.js"]
+    forbidden_actions: ["Direct BigQuery calls from frontend", "Averaging percentages mathematically"]
+    rule: "UI layer must ONLY filter and render pre-aggregated data. Rates (e.g. CVR, Open Time Share) MUST be calculated as SUM(numerator)/SUM(denominator) dynamically."
+  
+  data_layer (Google Sheets):
+    rule: "GSheets acts as an incremental Cache. BQ full-refresh queries cost 3GB+ and are strictly forbidden on a daily basis. Use targeted appends (Yesterday's data)."
+
+  query_layer (BigQuery):
+    forbidden_actions: ["SELECT *", "Unbounded historical queries on daily crons"]
+    rule: "Daily cron MUST filter strictly by DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)."
+
+partner_logic_enforcement:
+  rule: "When rendering Active Partners, the AI must explicitly implement the business categorization: 'Zombie', 'Activo sin ventas', 'Activo con ventas', 'Churned'. AI MUST exclude 'Offline + 0 Orders' from arrays."
+
+forbidden_patterns:
+  - pattern: "Hardcoded text or numbers in business logic"
+  - pattern: "Catch-all exceptions (catch(e){})"
+  - pattern: "Calling BQ synchronously on page load"
+
+required_patterns:
+  - requirement: "LockService"
+    enforcement: "Must wrap all append functions to prevent duplicates during the 10:00 AM Cron run."
+  - requirement: "Structured Response"
+    enforcement: "Endpoints must return {success: boolean, data: any, error: any}."
