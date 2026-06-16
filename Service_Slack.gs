@@ -2,31 +2,29 @@
 // Service_Slack.gs — Choice Monitor (Alerts Manager & Slack Integration)
 // =============================================================================
 
-const SHEET_ALERTS = 'SYS_ALERTS';
-const ALERT_HEADERS = ['id','channel_id','channel_name','partner_keywords','reasons','frequency','active','created_at','last_run','emoji','name','time_from','time_until','days'];
+const SHEET_ALERTS = 'CM_ALERTS_CONFIG'; // Aseguramos que apunte a la hoja correcta según Config.gs
+const ALERT_HEADERS = ['alert_id', 'alert_name', 'channel_id', 'filter_city', 'filter_business', 'filter_category', 'metric', 'operator', 'threshold_type', 'value', 'is_active', 'created_at'];
 
 // =============================================================================
 // 1. SHEET CONFIGURATION (Motor de Auto-Reparación)
 // =============================================================================
 function _ensureAlertsSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sh = ss.getSheetByName(SHEET_ALERTS);
+  // Usamos el ID del Spreadsheet definido en Config.gs
+  const ss = SpreadsheetApp.openById(CM_SPREADSHEET_ID);
+  let sh = ss.getSheetByName('CM_ALERTS_CONFIG');
   
   if (!sh) {
-    sh = ss.insertSheet(SHEET_ALERTS);
+    // Si realmente no existe, la creamos en el archivo correcto
+    sh = ss.insertSheet('CM_ALERTS_CONFIG');
+  }
+
+  // Si está vacía, ponemos los encabezados
+  if (sh.getLastRow() === 0) {
     sh.getRange(1, 1, 1, ALERT_HEADERS.length).setValues([ALERT_HEADERS])
       .setFontWeight('bold').setBackground('#4f46e5').setFontColor('#ffffff');
     sh.setFrozenRows(1);
-  } else {
-    // Validar y reparar encabezado si fue corrompido
-    const firstCell = String(sh.getRange(1, 1).getValue() || '').trim();
-    if (firstCell !== ALERT_HEADERS[0]) {
-      if (sh.getLastRow() > 0) sh.insertRowBefore(1);
-      sh.getRange(1, 1, 1, ALERT_HEADERS.length).setValues([ALERT_HEADERS])
-        .setFontWeight('bold').setBackground('#4f46e5').setFontColor('#ffffff');
-      sh.setFrozenRows(1);
-    }
   }
+  
   return sh;
 }
 
@@ -37,90 +35,53 @@ function _ensureAlertsSheet() {
 function getAlertsConfig() {
   try {
     const sh = _ensureAlertsSheet();
-    const lastRow = sh.getLastRow();
-    if (lastRow < 2) return { success: true, data: [] };
-
-    const rows = sh.getRange(2, 1, lastRow - 1, ALERT_HEADERS.length).getValues();
-    const alerts = [];
-
-    rows.forEach(row => {
-      const id = String(row[0] || '').trim();
-      if (!id || id === 'id' || !id.startsWith('alert_')) return;
-
-      const o = {};
-      ALERT_HEADERS.forEach((key, i) => { o[key] = (row[i] !== undefined && row[i] !== null) ? row[i] : ''; });
-
-      // Transformaciones seguras de JSON y booleanos
-      try { o.partner_keywords = JSON.parse(o.partner_keywords || '[]'); } catch(_) { o.partner_keywords = []; }
-      try { o.days = JSON.parse(o.days || '[]'); } catch(_) { o.days = []; }
-      
-      o.active = (o.active === true || String(o.active).toUpperCase() === 'TRUE');
-      o.last_run = o.last_run ? String(o.last_run) : '';
-
-      alerts.push(o);
-    });
-
-    return { success: true, data: alerts };
-  } catch(e) {
-    SystemLogger.error('[Service_Slack] getAlertsConfig Error: ' + e.message);
-    return { success: false, error: e.message, data: [] };
+    const data = sh.getDataRange().getValues();
+    const headers = data.shift(); // Saca los encabezados: ['alert_id', 'alert_name', ...]
+    
+    const results = data.map(row => {
+      return {
+        id: row[0],
+        name: row[1],
+        channel_id: row[2],
+        filter_city: row[3],
+        filter_business: row[4],
+        filter_category: row[5],
+        metric: row[6],
+        operator: row[7],
+        threshold_type: row[8],
+        value: row[9],
+        active: String(row[10]).toUpperCase() === 'TRUE'
+      };
+    }).filter(a => a.id); // Solo filas con ID
+    
+    return { success: true, data: results };
+  } catch (e) {
+    return { success: false, error: e.message };
   }
 }
 
-function saveAlertConfig(cfg) {
+// Asegúrate de que esta lógica esté en tu Service_Slack.gs
+function saveAlertConfig(payload) {
   try {
     const sh = _ensureAlertsSheet();
-    if (!cfg.partner_keywords || cfg.partner_keywords.length === 0) {
-      return { success: false, error: 'Debes ingresar al menos una palabra clave (keyword) de partner.' };
-    }
-
-    // Regla de Negocio: Una alerta por Canal
-    const existing = getAlertsConfig().data;
-    const clash = existing.find(a => a.channel_id === cfg.channel_id && String(a.id) !== String(cfg.id || ''));
-    if (clash) return { success: false, error: 'Ya existe una alerta para este canal. Solo se permite una alerta por canal.' };
-
+    // Este orden debe ser idéntico a las columnas de tu hoja CM_ALERTS_CONFIG
     const rowData = [
-      cfg.id || '',
-      cfg.channel_id,
-      cfg.channel_name || cfg.channel_id,
-      JSON.stringify(cfg.partner_keywords || []),
-      JSON.stringify([]), // reasons
-      cfg.frequency || '15',
-      cfg.active !== false,
-      '', // created_at
-      '', // last_run
-      '🚨', // emoji
-      cfg.name || '',
-      cfg.time_from || '',
-      cfg.time_until || '',
-      JSON.stringify(cfg.days || [])
+      payload.id || Utilities.getUuid(),
+      payload.name,
+      payload.channel_id,
+      payload.filter_city,
+      payload.filter_business,
+      payload.filter_category,
+      payload.metric,
+      payload.operator,
+      payload.threshold_type,
+      payload.value,
+      payload.active ? 'TRUE' : 'FALSE',
+      new Date().toISOString() // Fecha creación
     ];
-
-    // Modo Actualización
-    if (cfg.id) {
-      const all = sh.getDataRange().getValues();
-      for (let i = 1; i < all.length; i++) {
-        if (String(all[i][0]).trim() === String(cfg.id).trim()) {
-          rowData[ALERT_HEADERS.indexOf('created_at')] = all[i][ALERT_HEADERS.indexOf('created_at')];
-          rowData[ALERT_HEADERS.indexOf('last_run')] = all[i][ALERT_HEADERS.indexOf('last_run')];
-          sh.getRange(i + 1, 1, 1, ALERT_HEADERS.length).setValues([rowData]);
-          SystemLogger.info(`[Service_Slack] Alerta actualizada: ${cfg.id}`);
-          return { success: true, id: cfg.id };
-        }
-      }
-    }
-
-    // Modo Creación
-    const newId = 'alert_' + Date.now();
-    rowData[0] = newId;
-    rowData[ALERT_HEADERS.indexOf('created_at')] = new Date().toISOString();
     sh.appendRow(rowData);
-    SystemLogger.info(`[Service_Slack] Nueva alerta creada: ${newId}`);
-    
-    return { success: true, id: newId };
-
-  } catch(e) {
-    SystemLogger.error('[Service_Slack] saveAlertConfig Error: ' + e.message);
+    return { success: true };
+  } catch (e) {
     return { success: false, error: e.message };
   }
 }
