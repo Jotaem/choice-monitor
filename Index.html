@@ -1,11 +1,363 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <base target="_top">
-    <title>Choice Monitor Loading...</title>
-  </head>
-  <body>
-    <h1>Choice Monitor Backend Activo 🟢</h1>
-    <p>La fase 3 ha sido conectada. Esperando interfaz de usuario.</p>
-  </body>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Choice Monitor 📊</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons (Iconos elegantes en formato SVG) -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    .dw-hidden { display: none !important; }
+    .tab-active { border-bottom: 2px solid #6366f1; color: #4f46e5; font-weight: bold; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans h-screen flex flex-col">
+
+  <!-- NAVBAR -->
+  <header class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+    <div class="max-w-screen-2xl mx-auto px-4 flex justify-between items-center h-14">
+      <div class="flex items-center space-x-3">
+        <img src="https://images.seeklogo.com/logo-png/48/2/pedidos-ya-logo-png_seeklogo-489511.png" alt="PedidosYa Logo" class="h-8">
+        <span class="text-xl font-light text-gray-600 border-l pl-3 border-gray-300">Choice Monitor</span>
+      </div>
+      
+      <!-- NAVIGATION TABS -->
+      <nav class="flex space-x-6 h-full" id="main-tabs">
+        <button onclick="window.CM.switchView('view-sessions')" class="flex items-center space-x-1 h-full px-2 text-sm text-gray-500 hover:text-indigo-600 tab-active" id="tab-view-sessions">
+          <i data-lucide="bar-chart-2" class="w-4 h-4"></i> <span>Sessions & CVR</span>
+        </button>
+        <button onclick="window.CM.switchView('view-times')" class="flex items-center space-x-1 h-full px-2 text-sm text-gray-500 hover:text-indigo-600" id="tab-view-times">
+          <i data-lucide="clock" class="w-4 h-4"></i> <span>Open Times</span>
+        </button>
+        <button onclick="window.CM.switchView('view-active')" class="flex items-center space-x-1 h-full px-2 text-sm text-gray-500 hover:text-indigo-600" id="tab-view-active">
+          <i data-lucide="activity" class="w-4 h-4"></i> <span>Active Partners</span>
+        </button>
+        <button onclick="window.CM.switchView('view-opportunity')" class="flex items-center space-x-1 h-full px-2 text-sm text-gray-500 hover:text-indigo-600" id="tab-view-opportunity">
+          <i data-lucide="target" class="w-4 h-4"></i> <span>Opportunity</span>
+        </button>
+        <button onclick="window.CM.switchView('view-home')" class="flex items-center space-x-1 h-full px-2 text-sm text-gray-500 hover:text-indigo-600" id="tab-view-home">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i> <span>Overview</span>
+        </button>
+        <button onclick="window.CM.switchView('view-alerts')" class="flex items-center space-x-1 h-full px-2 text-sm text-gray-500 hover:text-indigo-600" id="tab-view-alerts">
+          <i data-lucide="bell" class="w-4 h-4"></i> <span>Alerts</span>
+        </button>
+      </nav>
+      
+      <!-- Estatus de Sincronización -->
+      <div id="sync-status" class="flex items-center space-x-2 text-xs text-gray-400">
+        <i data-lucide="refresh-cw" class="w-3 h-3 animate-spin"></i>
+        <span>Sincronizando...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- FILTER BAR (Global) -->
+  <section class="bg-white border-b border-gray-200 py-3 px-4 shadow-sm z-40">
+    <div class="max-w-screen-2xl mx-auto flex flex-wrap gap-4 items-center">
+      <span class="text-xs font-bold text-gray-400 tracking-wider">FILTROS GLOBALES</span>
+      
+      <select id="filter-city" class="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" onchange="window.CM.applyFilters()">
+        <option value="ALL">Todas las Ciudades</option>
+      </select>
+
+      <select id="filter-business" class="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" onchange="window.CM.applyFilters()">
+        <option value="ALL">Todos los Business</option>
+      </select>
+
+      <select id="filter-category" class="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" onchange="window.CM.applyFilters()">
+        <option value="ALL">Todas las Categorías</option>
+      </select>
+
+      <div class="flex-grow"></div>
+      <button onclick="window.CM.resetFilters()" class="text-xs text-gray-500 hover:text-red-500 border border-gray-200 px-3 py-1 rounded bg-gray-50">Limpiar Filtros</button>
+    </div>
+  </section>
+
+  <!-- MAIN VIEWS CONTAINER -->
+  <main class="flex-grow p-4 max-w-screen-2xl mx-auto w-full overflow-y-auto">
+    
+    <section id="view-home" class="dw-hidden">
+      <div class="flex items-center space-x-2 mb-6">
+        <i data-lucide="layout-dashboard" class="w-6 h-6 text-indigo-600"></i>
+        <h2 class="text-2xl font-bold text-gray-800">Overview Scorecards</h2>
+      </div>
+      <div id="scorecards-container" class="grid grid-cols-4 gap-4">
+        <!-- Renderizado dinámico aquí -->
+      </div>
+    </section>
+
+    <section id="view-sessions">
+      <div class="flex items-center space-x-2 mb-6">
+        <i data-lucide="bar-chart-2" class="w-6 h-6 text-indigo-600"></i>
+        <h2 class="text-2xl font-bold text-gray-800">Sessions & CVR</h2>
+      </div>
+      
+      <div class="grid grid-cols-2 gap-6">
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-sm font-semibold text-gray-600 mb-2">Evolución Mensual</h3>
+          <div class="relative h-64 w-full"><canvas id="chart-sessions-month"></canvas></div>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-sm font-semibold text-gray-600 mb-2">Evolución por ISO Week</h3>
+          <div class="relative h-64 w-full"><canvas id="chart-sessions-isoweek"></canvas></div>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-sm font-semibold text-gray-600 mb-2">Comportamiento por Día de la Semana</h3>
+          <div class="relative h-64 w-full"><canvas id="chart-sessions-dayofweek"></canvas></div>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-sm font-semibold text-gray-600 mb-2">Distribución por Hora del Día</h3>
+          <div class="relative h-64 w-full"><canvas id="chart-sessions-hourofday"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-times" class="dw-hidden">
+      <div class="flex items-center space-x-2 mb-6">
+        <i data-lucide="clock" class="w-6 h-6 text-indigo-600"></i>
+        <h2 class="text-2xl font-bold text-gray-800">Open & Closed Times Macro</h2>
+      </div>
+      
+      <div class="grid grid-cols-2 gap-6">
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-sm font-semibold text-gray-600 mb-2">Evolución Mensual (Open vs Closed)</h3>
+          <div class="relative h-64 w-full"><canvas id="chart-times-month"></canvas></div>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-sm font-semibold text-gray-600 mb-2">Evolución por Semana ISO</h3>
+          <div class="relative h-64 w-full"><canvas id="chart-times-isoweek"></canvas></div>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-sm font-semibold text-gray-600 mb-2">Open Share % por Categoría</h3>
+          <div class="relative h-64 w-full"><canvas id="chart-times-category"></canvas></div>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-sm font-semibold text-gray-600 mb-2">Open Share % por Recepción</h3>
+          <div class="relative h-64 w-full"><canvas id="chart-times-reception"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- NUEVA VISTA: ACTIVE PARTNERS -->
+    <section id="view-active" class="dw-hidden">
+      <div class="flex items-center space-x-2 mb-6">
+        <i data-lucide="activity" class="w-6 h-6 text-indigo-600"></i>
+        <h2 class="text-2xl font-bold text-gray-800">Estado del Ecosistema (Active Partners)</h2>
+      </div>
+
+      <!-- Leyenda de Negocio -->
+      <div class="bg-blue-50 text-blue-800 p-4 rounded-md mb-6 text-sm border-l-4 border-blue-500 shadow-sm">
+        <p class="font-bold mb-1">Lógica Estricta de Limpieza de Base de Datos:</p>
+        <ul class="list-disc ml-5 space-y-1">
+          <li><strong>Zombies:</strong> Locales Online pero con 0 horas de open time (no han abierto en los horarios configurados).</li>
+          <li><strong>Activos sin Ventas:</strong> Locales Online y que han abierto, pero con 0 órdenes registradas.</li>
+          <li><strong>Activos con Ventas:</strong> Locales saludables (Online, abiertos y con ventas).</li>
+          <li><strong>Churned:</strong> Locales Offline en la actualidad, pero que registran ventas en el histórico.</li>
+          <li class="text-gray-500"><em>Cualquier otro registro (ej: Offline con 0 ventas históricas) se considera "Basura" y es automáticamente ignorado del dashboard.</em></li>
+        </ul>
+      </div>
+
+      <div class="grid grid-cols-2 gap-6">
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-sm font-semibold text-gray-600 mb-2">Distribución Global del Ecosistema</h3>
+          <div class="relative h-64 w-full"><canvas id="chart-active-global"></canvas></div>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-sm font-semibold text-gray-600 mb-2">Estado de Socios por Categoría</h3>
+          <div class="relative h-64 w-full"><canvas id="chart-active-category"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-opportunity" class="dw-hidden">
+      <div class="flex items-center space-x-2 mb-6">
+        <i data-lucide="target" class="w-6 h-6 text-indigo-600"></i>
+        <h2 class="text-2xl font-bold text-gray-800">Opportunity (Táctico Nivel Partner)</h2>
+      </div>
+
+      <!-- Explicación del alcance del cubo -->
+      <div class="bg-indigo-50 text-indigo-800 p-4 rounded-md mb-6 text-sm border-l-4 border-indigo-500 shadow-sm">
+        <p><strong>Ventana Táctica:</strong> Esta vista procesa exclusivamente el cubo de Oportunidad, el cual contiene datos granulares a nivel de socio.</p>
+      </div>
+      
+      <!-- Tabla de Oportunidades -->
+      <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+          <h3 class="text-sm font-semibold text-gray-600">Directorio de Socios</h3>
+        </div>
+        <div class="overflow-x-auto max-h-[500px]">
+          <table class="w-full text-sm text-left text-gray-500">
+            <thead class="text-xs text-gray-700 uppercase bg-gray-100 sticky top-0 shadow-sm">
+              <tr>
+                <th scope="col" class="px-6 py-3">Partner Name</th>
+                <th scope="col" class="px-6 py-3">Categoría</th>
+                <th scope="col" class="px-6 py-3 text-right">Open Time (min)</th>
+                <th scope="col" class="px-6 py-3 text-right">Órdenes Confirmadas</th>
+                <th scope="col" class="px-6 py-3 text-center">Estado de Salud</th>
+              </tr>
+            </thead>
+            <tbody id="table-opportunity-body" class="divide-y divide-gray-200">
+              <!-- Renderizado dinámico desde JS irá aquí -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ALERTS MANAGER -->
+    <section id="view-alerts" class="dw-hidden">
+      <div class="flex justify-between items-center mb-6">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="bell" class="w-6 h-6 text-indigo-600"></i>
+          <h2 class="text-2xl font-bold text-gray-800">Alerts Manager (LiveOps)</h2>
+        </div>
+        <button onclick="window.CM.openAlertModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center space-x-2 transition-colors shadow-sm">
+          <i data-lucide="plus" class="w-4 h-4"></i>
+          <span>Nueva Alerta</span>
+        </button>
+      </div>
+
+      <!-- Tabla de Alertas -->
+      <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm text-left text-gray-500">
+            <thead class="text-xs text-gray-700 uppercase bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th scope="col" class="px-6 py-3">Alerta</th>
+                <th scope="col" class="px-6 py-3">Segmento Evaluado</th>
+                <th scope="col" class="px-6 py-3">Regla de Disparo</th>
+                <th scope="col" class="px-6 py-3 text-center">Estado</th>
+                <th scope="col" class="px-6 py-3 text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="table-alerts-body" class="divide-y divide-gray-200">
+              <tr><td colspan="5" class="px-6 py-8 text-center text-gray-400">Cargando motor de alertas...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- MODAL: Crear/Editar Alerta (NUEVO DISEÑO ESTRATÉGICO) -->
+      <div id="modal-alert" class="dw-hidden fixed inset-0 z-[100] flex items-center justify-center bg-gray-900 bg-opacity-50 backdrop-blur-sm transition-opacity">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[95vh] flex flex-col overflow-hidden">
+          
+          <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+            <h3 class="text-lg font-bold text-gray-800" id="modal-alert-title">Configurar Alerta Estratégica</h3>
+            <button onclick="window.CM.closeAlertModal()" class="text-gray-400 hover:text-gray-600 transition-colors">
+              <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+          </div>
+          
+          <div class="p-6 overflow-y-auto flex-grow space-y-5 bg-white">
+            <input type="hidden" id="alert-id">
+            
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wider">Nombre de la Alerta</label>
+                <input type="text" id="alert-name" placeholder="Ej: Caída CVR Sushi Santiago" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2.5 border">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wider">Slack Channel ID</label>
+                <input type="text" id="alert-channel" placeholder="Ej: C01ABC2DEF" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm p-2.5 border">
+              </div>
+            </div>
+
+            <div>
+              <h4 class="text-xs font-bold text-indigo-600 border-b border-gray-100 pb-2 mb-3 mt-2 uppercase tracking-wider">1. Segmento a Evaluar</h4>
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-[11px] font-medium text-gray-500 mb-1">Ciudad</label>
+                  <select id="modal-filter-city" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm p-2 border bg-gray-50"><option value="ALL">Todas</option></select>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-medium text-gray-500 mb-1">Business</label>
+                  <select id="modal-filter-business" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm p-2 border bg-gray-50"><option value="ALL">Todos</option></select>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-medium text-gray-500 mb-1">Categoría</label>
+                  <select id="modal-filter-category" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm p-2 border bg-gray-50"><option value="ALL">Todas</option></select>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 class="text-xs font-bold text-indigo-600 border-b border-gray-100 pb-2 mb-3 mt-2 uppercase tracking-wider">2. Regla de Disparo</h4>
+              <div class="mb-3">
+                <label class="block text-[11px] font-medium text-gray-500 mb-1">Métrica a Monitorear</label>
+                <select id="alert-metric" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm p-2.5 border font-medium">
+                  <optgroup label="Tráfico y Conversión">
+                    <option value="total_sessions">Total Sesiones</option>
+                    <option value="cvr_global">CVR Global (%)</option>
+                  </optgroup>
+                  <optgroup label="Disponibilidad Operativa">
+                    <option value="open_share">Open Share (%)</option>
+                  </optgroup>
+                  <optgroup label="Salud del Ecosistema (Partners)">
+                    <option value="partners_zombie">Volumen de Locales Zombies</option>
+                    <option value="partners_sin_ventas">Volumen de Activos sin Ventas</option>
+                    <option value="partners_churned">Volumen de Locales Churned</option>
+                  </optgroup>
+                </select>
+              </div>
+
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-[11px] font-medium text-gray-500 mb-1">Operador</label>
+                  <select id="alert-operator" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm p-2 border">
+                    <option value="<">Cae por debajo de (<)</option>
+                    <option value=">">Supera los (>)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-medium text-gray-500 mb-1">Tipo de Umbral</label>
+                  <select id="alert-threshold-type" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm p-2 border">
+                    <option value="absolute">Valor Absoluto (Cantidad o % directo)</option>
+                    <option value="percent_sample">% sobre el total de la muestra actual</option>
+                    <option value="var_wow">Variación WoW % (Respecto a sem. anterior)</option>
+                    <option value="var_mom">Variación MoM % (Respecto a mes anterior)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-medium text-gray-500 mb-1">Valor</label>
+                  <input type="number" id="alert-value" placeholder="Ej: 25" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm p-2 border">
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-blue-50 text-blue-800 text-xs p-3 rounded-md flex items-start space-x-2 border border-blue-100">
+              <i data-lucide="info" class="w-4 h-4 flex-shrink-0 mt-0.5 text-blue-600"></i>
+              <span><strong>Evaluación Batch Automatizada:</strong> Esta alerta será evaluada silenciosamente en segundo plano una vez al día, inmediatamente después de la actualización del Cron de BigQuery.</span>
+            </div>
+
+            <div class="flex items-center space-x-2 pt-2 border-t border-gray-100">
+              <input type="checkbox" id="alert-active" checked class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer">
+              <label for="alert-active" class="text-sm text-gray-800 font-bold cursor-pointer">Activar esta alerta tras guardar</label>
+            </div>
+          </div>
+          
+          <div class="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3 bg-gray-50">
+            <button onclick="window.CM.closeAlertModal()" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-100 transition-colors shadow-sm">Cancelar</button>
+            <button onclick="window.CM.saveAlertForm()" class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors flex items-center space-x-2">
+              <i data-lucide="save" class="w-4 h-4"></i>
+              <span>Guardar Regla</span>
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Inyección de JS -->
+  <?!= include('Scripts'); ?>
+  
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
 </html>
