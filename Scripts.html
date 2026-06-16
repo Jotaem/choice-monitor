@@ -1,0 +1,694 @@
+<script>
+/**
+ * Choice Monitor — Frontend Engine
+ * Maneja el estado global, la descarga de la caché y el ruteo de la SPA.
+ */
+
+window.CM = (function() {
+  
+  // =========================================================================
+  // 1. STATE MANAGEMENT
+  // =========================================================================
+  const STATE = {
+    raw: { sessions: [], timesMacro: [], opportunity: [], alerts: [] },
+    filtered: { sessions: [], timesMacro: [], opportunity: [] },
+    filters: { city: 'ALL', business: 'ALL', category: 'ALL' },
+    activeView: 'view-sessions'
+  };
+
+  // =========================================================================
+  // 2. INIT & DATA FETCH
+  // =========================================================================
+  function init() {
+    google.script.run
+      .withSuccessHandler(onDataReceived)
+      .withFailureHandler(onDataError)
+      .getDashboardData();
+  }
+
+  function onDataReceived(response) {
+    if (!response.success) return onDataError(response.error);
+    
+    STATE.raw.sessions = response.data.sessions || [];
+    STATE.raw.timesMacro = response.data.timesMacro || [];
+    STATE.raw.opportunity = response.data.opportunity || [];
+    
+    document.getElementById('sync-status').innerHTML = '<i data-lucide="check-circle" class="w-3 h-3 text-green-500"></i><span class="text-green-600">Online</span>';
+    lucide.createIcons();
+    
+    populateDropdowns();
+    applyFilters();
+  }
+
+  function onDataError(err) {
+    console.error('[CM] Fallo:', err);
+    document.getElementById('sync-status').innerHTML = '<span class="text-red-500">Error de Conexión</span>';
+  }
+
+  // =========================================================================
+  // 3. LÓGICA DE NEGOCIO (Categorización de Socios)
+  // =========================================================================
+  function categorizePartnerStatus(partnerRow) {
+    const isOnline = (partnerRow.partner_status === 'ON_LINE');
+    const openTime = parseFloat(partnerRow.total_schedule_open_time) || 0;
+    const orders = parseInt(partnerRow.total_orders) || 0;
+
+    if (isOnline && openTime === 0) return 'ZOMBIE';
+    if (isOnline && openTime > 0 && orders === 0) return 'ACTIVO_SIN_VENTAS';
+    if (isOnline && openTime > 0 && orders > 0) return 'ACTIVO_CON_VENTAS';
+    if (!isOnline && orders > 0) return 'CHURNED';
+    
+    return null; 
+  }
+
+  // =========================================================================
+  // 4. FILTROS
+  // =========================================================================
+  function populateDropdowns() {
+    const cities = new Set();
+    const businesses = new Set();
+    const categories = new Set();
+
+    STATE.raw.timesMacro.forEach(row => {
+      if (row.ciudad) cities.add(row.ciudad);
+      if (row.business_name) businesses.add(row.business_name);
+      if (row.unified_category) categories.add(row.unified_category);
+    });
+
+    _fillSelect('filter-city', cities);
+    _fillSelect('filter-business', businesses);
+    _fillSelect('filter-category', categories);
+  }
+
+  function _fillSelect(elementId, setValues) {
+    const select = document.getElementById(elementId);
+    select.options.length = 1; 
+    Array.from(setValues).sort().forEach(val => {
+      select.add(new Option(val, val));
+    });
+  }
+
+  function applyFilters() {
+    STATE.filters.city = document.getElementById('filter-city').value;
+    STATE.filters.business = document.getElementById('filter-business').value;
+    STATE.filters.category = document.getElementById('filter-category').value;
+
+    STATE.filtered.timesMacro = STATE.raw.timesMacro.filter(row => {
+      const matchCity = (STATE.filters.city === 'ALL' || row.ciudad === STATE.filters.city);
+      const matchBiz  = (STATE.filters.business === 'ALL' || row.business_name === STATE.filters.business);
+      const matchCat  = (STATE.filters.category === 'ALL' || row.unified_category === STATE.filters.category);
+      return matchCity && matchBiz && matchCat;
+    });
+
+    renderActiveView();
+  }
+
+  function resetFilters() {
+    document.getElementById('filter-city').value = 'ALL';
+    document.getElementById('filter-business').value = 'ALL';
+    document.getElementById('filter-category').value = 'ALL';
+    applyFilters();
+  }
+
+  // =========================================================================
+  // 5. NAVEGACIÓN SPA
+  // =========================================================================
+  function switchView(viewId) {
+    const views = ['view-home', 'view-sessions', 'view-times', 'view-active', 'view-opportunity', 'view-alerts'];
+    views.forEach(v => document.getElementById(v).classList.add('dw-hidden'));
+    
+    const tabs = document.querySelectorAll('#main-tabs button');
+    tabs.forEach(t => t.classList.remove('tab-active'));
+
+    document.getElementById(viewId).classList.remove('dw-hidden');
+    document.getElementById('tab-' + viewId).classList.add('tab-active');
+    
+    STATE.activeView = viewId;
+    renderActiveView();
+  }
+
+  function renderActiveView() {
+    if (STATE.activeView === 'view-home') {
+      let totalOpen = 0;
+      let totalClosed = 0;
+      let totalOrders = 0;
+      STATE.filtered.timesMacro.forEach(row => {
+        totalOpen += parseFloat(row.total_schedule_open_time || 0);
+        totalClosed += parseFloat(row.total_real_closed_time || 0);
+        totalOrders += parseInt(row.confirmed_orders || 0);
+      });
+      const totalTime = totalOpen + totalClosed;
+      const openShare = totalTime > 0 ? ((totalOpen / totalTime) * 100).toFixed(1) : 0;
+
+      const filteredSessions = STATE.raw.sessions.filter(row => {
+        return STATE.filters.city === 'ALL' || row.ciudad === STATE.filters.city;
+      });
+      let totalSessions = 0;
+      filteredSessions.forEach(row => {
+        totalSessions += parseInt(row.total_sessions || 0);
+      });
+
+      const globalCvr = totalSessions > 0 ? ((totalOrders / totalSessions) * 100).toFixed(2) : 0;
+
+      document.getElementById('scorecards-container').innerHTML = `
+        <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-200 relative overflow-hidden">
+          <div class="absolute top-0 right-0 p-4 opacity-10"><i data-lucide="bar-chart-2" class="w-12 h-12 text-indigo-600"></i></div>
+          <p class="text-sm font-semibold text-gray-500 mb-1">Total Sesiones</p>
+          <p class="text-3xl font-bold text-gray-800">${totalSessions.toLocaleString()}</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-200 relative overflow-hidden">
+          <div class="absolute top-0 right-0 p-4 opacity-10"><i data-lucide="shopping-bag" class="w-12 h-12 text-indigo-600"></i></div>
+          <p class="text-sm font-semibold text-gray-500 mb-1">Órdenes Confirmadas</p>
+          <p class="text-3xl font-bold text-indigo-600">${totalOrders.toLocaleString()}</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-200 relative overflow-hidden">
+          <div class="absolute top-0 right-0 p-4 opacity-10"><i data-lucide="mouse-pointer-click" class="w-12 h-12 text-amber-500"></i></div>
+          <p class="text-sm font-semibold text-gray-500 mb-1">CVR Global</p>
+          <p class="text-3xl font-bold text-gray-800">${globalCvr}%</p>
+        </div>
+
+        <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-200 relative overflow-hidden">
+          <div class="absolute top-0 right-0 p-4 opacity-10"><i data-lucide="clock" class="w-12 h-12 text-emerald-500"></i></div>
+          <p class="text-sm font-semibold text-gray-500 mb-1">Open Share %</p>
+          <p class="text-3xl font-bold text-gray-800">${openShare}%</p>
+        </div>
+      `;
+      lucide.createIcons();
+    }
+
+    if (STATE.activeView === 'view-sessions') {
+      const filteredSessions = STATE.raw.sessions.filter(row => {
+        return STATE.filters.city === 'ALL' || row.ciudad === STATE.filters.city;
+      });
+
+      const dataMonth = aggregateSessions(filteredSessions, 'month');
+      const dataIsoWeek = aggregateSessions(filteredSessions, 'isoweek');
+      const dataDayOfWeek = aggregateSessions(filteredSessions, 'dayofweek');
+      const dataHourOfDay = aggregateSessions(filteredSessions, 'hourofday');
+
+      renderComboChart('chart-sessions-month', dataMonth, 'Mes');
+      renderComboChart('chart-sessions-isoweek', dataIsoWeek, 'Semana ISO');
+      renderComboChart('chart-sessions-dayofweek', dataDayOfWeek, 'Día');
+      renderComboChart('chart-sessions-hourofday', dataHourOfDay, 'Hora');
+    }
+
+    if (STATE.activeView === 'view-times') {
+      const filteredTimes = STATE.filtered.timesMacro;
+
+      const timesMonth = aggregateTimes(filteredTimes, 'month');
+      const timesIsoWeek = aggregateTimes(filteredTimes, 'isoweek');
+      const timesCategory = aggregateTimes(filteredTimes, 'category').sort((a, b) => b.open - a.open);
+      const timesReception = aggregateTimes(filteredTimes, 'reception').sort((a, b) => b.open - a.open);
+
+      renderTimesComboChart('chart-times-month', timesMonth);
+      renderTimesComboChart('chart-times-isoweek', timesIsoWeek);
+      renderDoughnutChart('chart-times-category', timesCategory, 'label', 'shareOpen', true);
+      renderDoughnutChart('chart-times-reception', timesReception, 'label', 'shareOpen', true);
+    }
+
+    if (STATE.activeView === 'view-active') {
+      const filteredOpp = STATE.raw.opportunity.filter(row => {
+        const matchCity = (STATE.filters.city === 'ALL' || row.ciudad === STATE.filters.city);
+        const matchBiz  = (STATE.filters.business === 'ALL' || row.business_name === STATE.filters.business);
+        const matchCat  = (STATE.filters.category === 'ALL' || row.unified_category === STATE.filters.category);
+        return matchCity && matchBiz && matchCat;
+      });
+
+      const ecoData = aggregateEcosystem(filteredOpp);
+      const statusColors = ['#10b981', '#f59e0b', '#ef4444', '#6b7280']; 
+
+      renderDoughnutChart('chart-active-global', ecoData.globalData, 'label', 'count', false, statusColors);
+      renderStackedBarChart('chart-active-category', ecoData.categoryData, 'category', ['ACTIVO_CON_VENTAS', 'ACTIVO_SIN_VENTAS', 'ZOMBIE', 'CHURNED']);
+    }
+
+    if (STATE.activeView === 'view-opportunity') {
+      const filteredOpp = STATE.raw.opportunity.filter(row => {
+        const matchCity = (STATE.filters.city === 'ALL' || row.ciudad === STATE.filters.city);
+        const matchBiz  = (STATE.filters.business === 'ALL' || row.business_name === STATE.filters.business);
+        const matchCat  = (STATE.filters.category === 'ALL' || row.unified_category === STATE.filters.category);
+        return matchCity && matchBiz && matchCat;
+      });
+
+      renderOpportunityTable(filteredOpp);
+    }
+
+    if (STATE.activeView === 'view-alerts') {
+      fetchAlerts();
+    }
+  }
+
+  // =========================================================================
+  // 6. UTILITIES MATEMÁTICAS
+  // =========================================================================
+  function getISOWeekString(dateString) {
+    if (!dateString) return 'Desconocido';
+    const d = new Date(dateString);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
+    const week1 = new Date(d.getFullYear(), 0, 4);
+    const weekNum = 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+    return `${d.getFullYear()}-W${weekNum.toString().padStart(2, '0')}`;
+  }
+
+  function getDateDimensions(dateString) {
+    const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const d = new Date(dateString + 'T00:00:00'); 
+    return {
+      month: dateString.substring(0, 7), 
+      dayName: days[d.getDay()],
+      dayIndex: d.getDay() === 0 ? 7 : d.getDay() 
+    };
+  }
+
+  // =========================================================================
+  // 7. DATA AGGREGATION
+  // =========================================================================
+  function aggregateSessions(data, dimension) {
+    const grouped = {};
+    data.forEach(row => {
+      let key = ''; let sortKey = 0; 
+      const dims = getDateDimensions(row.fecha);
+
+      if (dimension === 'month') { key = dims.month; sortKey = key; }
+      else if (dimension === 'isoweek') { key = getISOWeekString(row.fecha); sortKey = key; }
+      else if (dimension === 'dayofweek') { key = dims.dayName; sortKey = dims.dayIndex; }
+      else if (dimension === 'hourofday') { 
+        const h = parseInt(row.hora_del_dia); key = `${h.toString().padStart(2, '0')}:00`; sortKey = h; 
+      }
+
+      if (!grouped[key]) grouped[key] = { label: key, sortKey: sortKey, sessions: 0, orders: 0 };
+      grouped[key].sessions += parseInt(row.total_sessions || 0);
+      grouped[key].orders += parseInt(row.sessions_with_orders || 0);
+    });
+
+    return Object.values(grouped)
+      .sort((a, b) => a.sortKey > b.sortKey ? 1 : -1)
+      .map(item => ({
+        label: item.label, sessions: item.sessions,
+        cvr: item.sessions > 0 ? ((item.orders / item.sessions) * 100).toFixed(2) : 0
+      }));
+  }
+
+  function aggregateTimes(data, dimension) {
+    const grouped = {};
+    data.forEach(row => {
+      let key = ''; let sortKey = ''; 
+      const dims = getDateDimensions(row.fecha);
+
+      if (dimension === 'month') { key = dims.month; sortKey = key; }
+      else if (dimension === 'isoweek') { key = getISOWeekString(row.fecha); sortKey = key; }
+      else if (dimension === 'category') { key = row.unified_category || 'Sin Categoría'; sortKey = key; }
+      else if (dimension === 'reception') { key = row.reception_system || 'Desconocido'; sortKey = key; }
+
+      if (!grouped[key]) grouped[key] = { label: key, sortKey: sortKey, open: 0, closed: 0 };
+      grouped[key].open += parseFloat(row.total_schedule_open_time || 0);
+      grouped[key].closed += parseFloat(row.total_real_closed_time || 0);
+    });
+
+    return Object.values(grouped)
+      .sort((a, b) => a.sortKey > b.sortKey ? 1 : -1)
+      .map(item => {
+        const total = item.open + item.closed;
+        return {
+          label: item.label, open: item.open, closed: item.closed,
+          shareOpen: total > 0 ? ((item.open / total) * 100).toFixed(2) : 0
+        };
+      });
+  }
+
+  function aggregateEcosystem(data) {
+    const summary = { 'ACTIVO_CON_VENTAS': 0, 'ACTIVO_SIN_VENTAS': 0, 'ZOMBIE': 0, 'CHURNED': 0 };
+    const byCategory = {};
+
+    data.forEach(row => {
+      const status = categorizePartnerStatus(row);
+      if (!status) return;
+
+      const cat = row.unified_category || 'Sin Categoría';
+      summary[status]++;
+
+      if (!byCategory[cat]) {
+        byCategory[cat] = { category: cat, 'ACTIVO_CON_VENTAS': 0, 'ACTIVO_SIN_VENTAS': 0, 'ZOMBIE': 0, 'CHURNED': 0, total: 0 };
+      }
+      byCategory[cat][status]++;
+      byCategory[cat].total++;
+    });
+
+    const globalData = Object.keys(summary).map(key => ({ label: key, count: summary[key] })).filter(d => d.count > 0);
+    const categoryData = Object.values(byCategory).sort((a, b) => b.total - a.total); 
+
+    return { globalData, categoryData };
+  }
+
+  function renderOpportunityTable(data) {
+    const tbody = document.getElementById('table-opportunity-body');
+    if (!tbody) return;
+
+    const currentData = data.filter(d => d.year_flag === 'CURRENT_YEAR');
+    const partners = {};
+    
+    currentData.forEach(row => {
+      const pid = row.partner_id;
+      if (!partners[pid]) {
+        partners[pid] = {
+          name: row.partner_name || 'Desconocido',
+          owner: row.account_owner || 'Sin Ejecutivo',
+          category: row.unified_category || 'Sin Categoría',
+          openTime: 0,
+          orders: 0,
+          status: row.partner_status
+        };
+      }
+      partners[pid].openTime += parseFloat(row.total_schedule_open_time || 0);
+      partners[pid].orders += parseInt(row.confirmed_orders || 0);
+      if (row.partner_status === 'ON_LINE') partners[pid].status = 'ON_LINE';
+    });
+
+    const tableRows = Object.values(partners).map(p => {
+      const mockRow = { partner_status: p.status, total_schedule_open_time: p.openTime, total_orders: p.orders };
+      p.health = categorizePartnerStatus(mockRow);
+      return p;
+    }).filter(p => p.health !== null).sort((a, b) => b.orders - a.orders);
+
+    let html = '';
+    tableRows.forEach(p => {
+      let badgeClass = '';
+      if (p.health === 'ACTIVO_CON_VENTAS') badgeClass = 'bg-green-100 text-green-800 border border-green-200';
+      else if (p.health === 'ACTIVO_SIN_VENTAS') badgeClass = 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+      else if (p.health === 'ZOMBIE') badgeClass = 'bg-red-100 text-red-800 border border-red-200';
+      else if (p.health === 'CHURNED') badgeClass = 'bg-gray-100 text-gray-800 border border-gray-200';
+
+      const healthLabel = p.health.replace(/_/g, ' ');
+
+      html += `
+        <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-6 py-4">
+            <div class="font-medium text-gray-900">${p.name}</div>
+            <div class="text-xs text-gray-400 mt-0.5"><i data-lucide="user" class="w-3 h-3 inline"></i> ${p.owner}</div>
+          </td>
+          <td class="px-6 py-4 text-gray-500">${p.category}</td>
+          <td class="px-6 py-4 text-right font-mono text-gray-600">${p.openTime.toLocaleString()}</td>
+          <td class="px-6 py-4 text-right font-mono text-indigo-600 font-semibold">${p.orders.toLocaleString()}</td>
+          <td class="px-6 py-4 text-center">
+            <span class="px-2.5 py-1 text-xs font-semibold rounded-full shadow-sm ${badgeClass}">
+              ${healthLabel}
+            </span>
+          </td>
+        </tr>
+      `;
+    });
+
+    tbody.innerHTML = html;
+    lucide.createIcons();
+  }
+
+  // =========================================================================
+  // 7.5 ALERTS MANAGER (Frontend Logic)
+  // =========================================================================
+  
+  function fetchAlerts() {
+    document.getElementById('table-alerts-body').innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-400"><i data-lucide="loader" class="w-6 h-6 animate-spin mx-auto mb-2"></i> Cargando alertas...</td></tr>';
+    lucide.createIcons();
+    
+    google.script.run
+      .withSuccessHandler(function(response) {
+        if(response.success) {
+          STATE.raw.alerts = response.data;
+          renderAlertsTable();
+        } else {
+          document.getElementById('table-alerts-body').innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-red-500">Error al cargar: ' + response.error + '</td></tr>';
+        }
+      })
+      .getAlertsConfig();
+  }
+
+  function renderAlertsTable() {
+    const tbody = document.getElementById('table-alerts-body');
+    if (!STATE.raw.alerts || STATE.raw.alerts.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-400">No hay alertas configuradas. Haz clic en "Nueva Alerta" para empezar.</td></tr>';
+      return;
+    }
+
+    let html = '';
+    STATE.raw.alerts.forEach(a => {
+      const statusBadge = a.active 
+        ? '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">Activa</span>' 
+        : '<span class="px-2 py-1 bg-gray-100 text-gray-800 text-xs font-semibold rounded-full">Pausada</span>';
+      
+      const filtersHtml = `📍 ${a.filter_city || 'Todas'} | 🏢 ${a.filter_business || 'Todos'} | 🏷️ ${a.filter_category || 'Todas'}`;
+      const ruleHtml = `<strong>${a.metric}</strong> ${a.operator} ${a.value} <em>(${a.threshold_type})</em>`;
+
+      html += `
+        <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
+          <td class="px-6 py-4">
+            <div class="font-medium text-gray-900">${a.name || 'Sin Nombre'}</div>
+            <div class="text-xs text-gray-500 mt-0.5"><i data-lucide="hash" class="w-3 h-3 inline"></i> ${a.channel_name || a.channel_id}</div>
+          </td>
+          <td class="px-6 py-4 text-xs text-gray-500">${filtersHtml}</td>
+          <td class="px-6 py-4 text-xs text-gray-800">${ruleHtml}</td>
+          <td class="px-6 py-4 text-center">${statusBadge}</td>
+          <td class="px-6 py-4 text-right space-x-2">
+            <button onclick="window.CM.toggleAlertStatus('${a.id}', ${!a.active})" class="text-gray-400 hover:text-indigo-600 transition-colors" title="${a.active ? 'Pausar' : 'Activar'}">
+              <i data-lucide="${a.active ? 'pause-circle' : 'play-circle'}" class="w-5 h-5"></i>
+            </button>
+            <button onclick="window.CM.deleteAlert('${a.id}')" class="text-gray-400 hover:text-red-600 transition-colors" title="Eliminar">
+              <i data-lucide="trash-2" class="w-5 h-5"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = html;
+    lucide.createIcons();
+  }
+
+  function openAlertModal() {
+    document.getElementById('modal-alert').classList.remove('dw-hidden');
+    
+    // Clonar las opciones disponibles en la base de datos hacia el modal
+    document.getElementById('modal-filter-city').innerHTML = document.getElementById('filter-city').innerHTML;
+    document.getElementById('modal-filter-business').innerHTML = document.getElementById('filter-business').innerHTML;
+    document.getElementById('modal-filter-category').innerHTML = document.getElementById('filter-category').innerHTML;
+
+    // Reset de campos
+    document.getElementById('alert-id').value = '';
+    document.getElementById('alert-name').value = '';
+    document.getElementById('alert-channel').value = '';
+    document.getElementById('modal-filter-city').value = 'ALL';
+    document.getElementById('modal-filter-business').value = 'ALL';
+    document.getElementById('modal-filter-category').value = 'ALL';
+    document.getElementById('alert-metric').value = 'total_sessions';
+    document.getElementById('alert-operator').value = '<';
+    document.getElementById('alert-threshold-type').value = 'absolute';
+    document.getElementById('alert-value').value = '';
+    document.getElementById('alert-active').checked = true;
+  }
+
+  function closeAlertModal() {
+    document.getElementById('modal-alert').classList.add('dw-hidden');
+  }
+
+  function saveAlertForm() {
+    const btn = document.querySelector('#modal-alert button.bg-indigo-600');
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i><span>Guardando...</span>';
+    btn.disabled = true;
+    lucide.createIcons();
+
+    const payload = {
+      id: document.getElementById('alert-id').value,
+      name: document.getElementById('alert-name').value,
+      channel_id: document.getElementById('alert-channel').value,
+      filter_city: document.getElementById('modal-filter-city').value,
+      filter_business: document.getElementById('modal-filter-business').value,
+      filter_category: document.getElementById('modal-filter-category').value,
+      metric: document.getElementById('alert-metric').value,
+      operator: document.getElementById('alert-operator').value,
+      threshold_type: document.getElementById('alert-threshold-type').value,
+      value: document.getElementById('alert-value').value,
+      active: document.getElementById('alert-active').checked
+    };
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+        lucide.createIcons();
+        if(res.success) {
+          closeAlertModal();
+          fetchAlerts(); 
+        } else {
+          alert('Error al guardar: ' + res.error);
+        }
+      })
+      .saveAlertConfig(payload);
+  }
+
+  function toggleAlertStatus(id, newStatus) {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if(res.success) fetchAlerts();
+        else alert('Error: ' + res.error);
+      })
+      .toggleAlertConfig(id, newStatus);
+  }
+
+  function deleteAlert(id) {
+    if(!confirm('¿Estás seguro de eliminar esta alerta? Esta acción no se puede deshacer.')) return;
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if(res.success) fetchAlerts();
+        else alert('Error: ' + res.error);
+      })
+      .deleteAlertConfig(id);
+  }
+
+  // =========================================================================
+  // 8. CHARTING ENGINE (Chart.js)
+  // =========================================================================
+  
+  const ChartInstances = {}; 
+
+  function renderComboChart(canvasId, data, title) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    if (ChartInstances[canvasId]) ChartInstances[canvasId].destroy();
+
+    ChartInstances[canvasId] = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: data.map(d => d.label),
+        datasets: [
+          { type: 'line', label: 'CVR (%)', data: data.map(d => d.cvr), borderColor: '#f59e0b', backgroundColor: '#f59e0b', borderWidth: 2, tension: 0.3, yAxisID: 'yCvr' },
+          { type: 'bar', label: 'Total Sessions', data: data.map(d => d.sessions), backgroundColor: '#6366f1', borderRadius: 4, yAxisID: 'yVol' }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+        scales: {
+          x: { grid: { display: false } },
+          yVol: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Sessions' }, grid: { borderDash: [2, 4] } },
+          yCvr: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'CVR %' }, grid: { drawOnChartArea: false }, ticks: { callback: function(value) { return value + '%'; } } }
+        }
+      }
+    });
+  }
+
+  function renderTimesComboChart(canvasId, data) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    if (ChartInstances[canvasId]) ChartInstances[canvasId].destroy();
+
+    ChartInstances[canvasId] = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: data.map(d => d.label),
+        datasets: [
+          { type: 'line', label: 'Open Share (%)', data: data.map(d => d.shareOpen), borderColor: '#10b981', backgroundColor: '#10b981', borderWidth: 2, tension: 0.3, yAxisID: 'yShare' },
+          { type: 'bar', label: 'Open Time', data: data.map(d => d.open), backgroundColor: '#34d399', stack: 'Stack 0', yAxisID: 'yVol' },
+          { type: 'bar', label: 'Closed Time', data: data.map(d => d.closed), backgroundColor: '#ef4444', stack: 'Stack 0', yAxisID: 'yVol' }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+        scales: {
+          x: { stacked: true, grid: { display: false } },
+          yVol: { stacked: true, type: 'linear', display: true, position: 'left', title: { display: true, text: 'Minutos Netos' }, grid: { borderDash: [2, 4] } },
+          yShare: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Share %' }, grid: { drawOnChartArea: false }, min: 0, max: 100, ticks: { callback: function(value) { return value + '%'; } } }
+        }
+      }
+    });
+  }
+
+  function renderDoughnutChart(canvasId, data, labelKey, valueKey, isPercentage = false, customColors = null) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    if (ChartInstances[canvasId]) ChartInstances[canvasId].destroy();
+
+    const colors = customColors || ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#0ea5e9', '#64748b'];
+
+    ChartInstances[canvasId] = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: data.map(d => d[labelKey]),
+        datasets: [{
+          data: data.map(d => d[valueKey]),
+          backgroundColor: colors.slice(0, data.length),
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right', labels: { boxWidth: 12 } },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                let label = context.label || '';
+                if (label) label += ': ';
+                label += isPercentage ? context.parsed + '%' : context.parsed.toLocaleString();
+                return label;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function renderStackedBarChart(canvasId, data, labelKey, stackKeys) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    if (ChartInstances[canvasId]) ChartInstances[canvasId].destroy();
+
+    const colorMap = {
+      'ACTIVO_CON_VENTAS': '#10b981',
+      'ACTIVO_SIN_VENTAS': '#f59e0b',
+      'ZOMBIE': '#ef4444',
+      'CHURNED': '#9ca3af'
+    };
+
+    const datasets = stackKeys.map(key => ({
+      label: key,
+      data: data.map(d => d[key] || 0),
+      backgroundColor: colorMap[key] || '#cbd5e1'
+    }));
+
+    ChartInstances[canvasId] = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: data.map(d => d[labelKey]),
+        datasets: datasets
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+        scales: {
+          x: { stacked: true, grid: { display: false } },
+          y: { stacked: true, beginAtZero: true, grid: { borderDash: [2, 4] } }
+        }
+      }
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", init);
+
+  // Exponemos TODAS las funciones al HTML
+  return { 
+    switchView, 
+    applyFilters, 
+    resetFilters, 
+    categorizePartnerStatus,
+    openAlertModal, 
+    closeAlertModal, 
+    saveAlertForm, 
+    toggleAlertStatus, 
+    deleteAlert 
+  };
+
+})();
+</script>
