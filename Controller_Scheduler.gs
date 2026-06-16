@@ -45,9 +45,13 @@ function runDailyIncrementalSync() {
     runBootstrapOpportunity();
 
     SystemLogger.info('[Scheduler] Sincronización Diaria completada con éxito.');
-
+    
+    // Ejecución segura posterior
+    runAlertEngine();
   } catch (e) {
     SystemLogger.error('[Scheduler] Error crítico en sincronización: ' + e.message);
+    // IMPORTANTE: Aquí podrías notificar a Slack que la ingesta falló
+    // sendSlackMessage(ADMIN_CHANNEL, [{type:"section", text:{type:"plain_text", text:"ALERTA: Falló la ingesta diaria"}}], "Error de Ingesta");
   } finally {
     lock.releaseLock();
   }
@@ -74,14 +78,16 @@ function _isDateAlreadyProcessed(sheetName, dateStr) {
 
   for (let i = 0; i < dates.length; i++) {
     let cellValue = dates[i][0];
-    
-    // Sheets a veces guarda las fechas como objetos Date nativos o como Strings
+    let cellDateStr = '';
+
+    // Normalización estricta: si es objeto Date, formatea; si es string, limpia
     if (cellValue instanceof Date) {
-      let cellDateStr = Utilities.formatDate(cellValue, 'America/Santiago', 'yyyy-MM-dd');
-      if (cellDateStr === dateStr) return true;
-    } else if (String(cellValue).startsWith(dateStr)) {
-      return true;
+      cellDateStr = Utilities.formatDate(cellValue, 'America/Santiago', 'yyyy-MM-dd');
+    } else {
+      cellDateStr = String(cellValue).trim().split('T')[0]; // Maneja ISO strings o YYYY-MM-DD
     }
+
+    if (cellDateStr === dateStr) return true;
   }
   return false;
 }
