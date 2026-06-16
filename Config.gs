@@ -21,6 +21,8 @@ const BQ_CONFIG = Object.freeze({
   USE_LEGACY_SQL: false
 });
 
+// --- CONFIGURACIÓN DE CABECERAS ---
+
 const CUBE_SESSIONS_HEADERS = Object.freeze([
   'ciudad', 'fecha', 'hora_del_dia', 'total_sessions', 'sessions_home',
   'sessions_shop_list', 'sessions_shop_details', 'sessions_checkout', 'sessions_with_orders'
@@ -40,14 +42,8 @@ const CUBE_OPPORTUNITY_HEADERS = Object.freeze([
 ]);
 
 const ALERTS_CONFIG_HEADERS = Object.freeze([
-  'alert_id', 'alert_name', 'metric', 'operator', 'threshold', 
-  'scope_json', 'frequency', 'slack_channel_id', 'is_active', 
-  'created_at', 'updated_at', 'version'
-]);
-
-const ALERTS_LOG_HEADERS = Object.freeze([
-  'timestamp', 'alert_id', 'alert_name', 'metric_value', 
-  'threshold', 'scope_snapshot', 'slack_response_status'
+  'alert_id', 'alert_name', 'channel_id', 'filter_city', 'filter_business', 
+  'filter_category', 'metric', 'operator', 'threshold_type', 'value', 'is_active', 'created_at'
 ]);
 
 const USAGE_LOG_HEADERS = Object.freeze([
